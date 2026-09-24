@@ -2,8 +2,12 @@
 // This is the "font renderer" — the only place glyph shapes come from.
 // Everything downstream only ever sees a grid of sampled alpha values.
 
+// Le fallback emoji est nécessaire dès que le texte affiché peut contenir un
+// glyphe substitué par Jev (cf. jev.js) — sans lui, certains navigateurs
+// dessinent un tofu/carré vide à la place de l'emoji.
 const FONT_FAMILY =
-  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif';
+  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif, ' +
+  '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"';
 
 const measureCtx = document.createElement("canvas").getContext("2d");
 

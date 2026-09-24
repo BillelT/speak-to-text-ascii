@@ -2,6 +2,8 @@
 // to see the grain field and its fall physics from an angle. Dev tool only,
 // never affects the default flat 2D look.
 
+import { isJevEnabled, setJevEnabled } from "./jev.js";
+
 function row(container, { label, min, max, step, value, format, onChange }) {
   const el = document.createElement("div");
   el.className = "dbg-row";
@@ -53,6 +55,21 @@ export function mountDebugPanel(panelEl, { grainField, camera, getGrainCount }) 
   });
   cameraRow.append(cameraLabel, cameraSwitch);
   panelEl.appendChild(cameraRow);
+
+  const jevRow = document.createElement("div");
+  jevRow.className = "dbg-row";
+  const jevLabel = document.createElement("label");
+  jevLabel.textContent = "Jev (emoji)";
+  const jevSwitch = document.createElement("button");
+  jevSwitch.className = "dbg-switch";
+  jevSwitch.type = "button";
+  jevSwitch.classList.toggle("on", isJevEnabled());
+  jevSwitch.addEventListener("click", () => {
+    setJevEnabled(!isJevEnabled());
+    jevSwitch.classList.toggle("on", isJevEnabled());
+  });
+  jevRow.append(jevLabel, jevSwitch);
+  panelEl.appendChild(jevRow);
 
   const sep1 = document.createElement("div");
   sep1.className = "dbg-sep";
