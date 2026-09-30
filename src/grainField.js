@@ -158,16 +158,16 @@ export class GrainField {
     this.layers = [];
 
     this.params = {
-      spacing: 8,
+      spacing: 4,
       maxFontSizePx: 220, // upper bound; long phrases shrink to fit the viewport
       minFontSizePx: 42,
-      pointSize: 5,
+      pointSize: 2.5,
       appearMs: 240,
-      holdMs: 1000, // time a settled word stays whole before it crumbles
-      fallFadeMs: 1300,
+      holdMs: 800, // time a settled word stays whole before it crumbles
+      fallFadeMs: 1000,
       gravity: 1700,
-      lateralSpeed: 130,
-      fallFloor: -160,
+      lateralSpeed: 400,
+      fallFloor: -400,
       color: [0.06, 0.06, 0.07],
     };
   }
