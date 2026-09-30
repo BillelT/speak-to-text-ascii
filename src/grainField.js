@@ -1,7 +1,5 @@
 import vertSrc from "./shaders/grain.vert.glsl?raw";
 import fragSrc from "./shaders/grain.frag.glsl?raw";
-import filmVertSrc from "./shaders/film.vert.glsl?raw";
-import filmFragSrc from "./shaders/film.frag.glsl?raw";
 import { renderTextMask, measureWidth } from "./textMask.js";
 
 function compile(gl, type, src) {
@@ -170,17 +168,6 @@ export class GrainField {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     
-    this.filmProgram = link(
-      gl,
-      compile(gl, gl.VERTEX_SHADER, filmVertSrc),
-      compile(gl, gl.FRAGMENT_SHADER, filmFragSrc),
-    );
-    this.filmUniforms = {};
-    for (const name of ["uFrame", "uAmount", "uScale"]) {
-      this.filmUniforms[name] = gl.getUniformLocation(this.filmProgram, name);
-    }
-    this.emptyVao = gl.createVertexArray();
-
     this.layers = [];
 
     this.params = {
@@ -197,9 +184,7 @@ export class GrainField {
       feather: 7,      // css px, width of the stipple halo around glyphs
       sizeVar: 0.35,   // grain size variance
       shimmer: 0.3,    // css px, grain tremble
-      filmGrain: 0.1, // full-screen grain strength
-      filmScale: 1,    // css px per film grain
-      background: [0.962, 0.958, 0.945],
+      background: [1, 1, 1],
       color: [0.05, 0.05, 0.06],
     };
   }
@@ -301,15 +286,6 @@ export class GrainField {
       gl.bindVertexArray(layer.vao);
       gl.drawArrays(gl.POINTS, 0, layer.count);
     }
-    gl.bindVertexArray(null);
-
-    // film grain over everything, text included
-    gl.useProgram(this.filmProgram);
-    gl.uniform1f(this.filmUniforms.uFrame, Math.floor(now * 24));
-    gl.uniform1f(this.filmUniforms.uAmount, this.params.filmGrain);
-    gl.uniform1f(this.filmUniforms.uScale, Math.max(1, this.params.filmScale * this.dpr));
-    gl.bindVertexArray(this.emptyVao);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindVertexArray(null);
   }
 }

@@ -125,16 +125,6 @@ export function mountDebugPanel(panelEl, { grainField, camera, getGrainCount }) 
     format: (v) => v.toFixed(2),
     onChange: (v) => { p.shimmer = v; },
   });
-  row(panelEl, {
-    label: "Film grain", min: 0, max: 0.8, step: 0.02, value: p.filmGrain,
-    format: (v) => v.toFixed(2),
-    onChange: (v) => { p.filmGrain = v; },
-  });
-  row(panelEl, {
-    label: "Film grain size", min: 1, max: 4, step: 0.5, value: p.filmScale,
-    format: (v) => `${v}px`,
-    onChange: (v) => { p.filmScale = v; },
-  });
 
   const sep2 = document.createElement("div");
   sep2.className = "dbg-sep";
