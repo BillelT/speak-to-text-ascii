@@ -1,5 +1,7 @@
 import vertSrc from "./shaders/grain.vert.glsl?raw";
 import fragSrc from "./shaders/grain.frag.glsl?raw";
+import filmVertSrc from "./shaders/film.vert.glsl?raw";
+import filmFragSrc from "./shaders/film.frag.glsl?raw";
 import { renderTextMask, measureWidth } from "./textMask.js";
 
 function compile(gl, type, src) {
@@ -35,6 +37,16 @@ function seedFor(i) {
   return [s - Math.floor(s), t - Math.floor(t)];
 }
 
+// Width (device px) of the soft halo where grains thin out around the glyphs.
+let featherPx = 14;
+export function setFeather(px) {
+  featherPx = px;
+}
+
+// Stipple, not a grid: every cell rolls a die against the local density, and a
+// surviving grain lands at a random spot inside its cell. Density is a mix of
+// the sharp glyph coverage (keeps letters legible) and a blurred copy of it
+// (dissolves the edges into scattered specks, like a noise-sketch brush).
 function buildInstances(text, fontSizePx, spacing) {
   const mask = renderTextMask(text, fontSizePx);
   const basePos = [];
@@ -43,30 +55,34 @@ function buildInstances(text, fontSizePx, spacing) {
 
   const cols = Math.floor(mask.width / spacing);
   const rows = Math.floor(mask.height / spacing);
-  const half = spacing / 2;
+  const sharpR = Math.max(1, spacing * 0.5);
+  const featherR = Math.max(sharpR, featherPx);
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
-      const px = col * spacing + half;
-      const py = row * spacing + half;
+      const cx = col * spacing + spacing / 2;
+      const cy = row * spacing + spacing / 2;
 
-      // small local average instead of a single sample: softer, more even fill
-      let sum = 0;
-      let n = 0;
-      const step = Math.max(1, Math.round(spacing / 3));
-      for (let oy = -1; oy <= 1; oy++) {
-        for (let ox = -1; ox <= 1; ox++) {
-          sum += mask.alphaAt(px + ox * step, py + oy * step);
-          n++;
-        }
+      const sharp = mask.meanAt(cx, cy, sharpR);
+      const soft = mask.meanAt(cx, cy, featherR);
+      // interior saturates just under 1 so even the solid body stays noisy
+      const density = Math.min(0.97, 0.95 * sharp + 0.5 * soft * soft + 0.2 * soft * sharp);
+      if (density < 0.01) continue;
+
+      // two dice per cell: the stipple reads denser without a visible lattice
+      for (let k = 0; k < 2; k++) {
+        const idx = row * 92821 + col * 6151 + 17 + k * 40009;
+        const [rx, ry] = seedFor(idx);
+        const [dice, jx] = seedFor(idx + 7919);
+        const [jy] = seedFor(idx + 104729);
+        if (dice > density) continue;
+
+        const px = cx + (jx - 0.5) * spacing;
+        const py = cy + (jy - 0.5) * spacing;
+        basePos.push(px - mask.width / 2, mask.height / 2 - py);
+        intensity.push(1);
+        seed.push(rx, ry);
       }
-      const a = sum / n;
-      if (a < 0.12) continue;
-
-      basePos.push(px - mask.width / 2, mask.height / 2 - py);
-      intensity.push(Math.min(1, a * 1.15));
-      const [rx, ry] = seedFor(row * 92821 + col * 6151 + 17);
-      seed.push(rx, ry);
     }
   }
 
@@ -146,14 +162,24 @@ export class GrainField {
     for (const name of [
       "uProjection", "uOrigin", "uTime", "uAppearAt", "uAppearMs",
       "uFallAt", "uFallFadeMs", "uGravity", "uLateralSpeed",
-      "uFallFloor", "uPointSize", "uColor",
+      "uFallFloor", "uPointSize", "uColor", "uSizeVar", "uShimmer",
     ]) {
       this.uniforms[name] = gl.getUniformLocation(this.program, name);
     }
 
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.clearColor(1, 1, 1, 1);
+    
+    this.filmProgram = link(
+      gl,
+      compile(gl, gl.VERTEX_SHADER, filmVertSrc),
+      compile(gl, gl.FRAGMENT_SHADER, filmFragSrc),
+    );
+    this.filmUniforms = {};
+    for (const name of ["uFrame", "uAmount", "uScale"]) {
+      this.filmUniforms[name] = gl.getUniformLocation(this.filmProgram, name);
+    }
+    this.emptyVao = gl.createVertexArray();
 
     this.layers = [];
 
@@ -168,7 +194,13 @@ export class GrainField {
       gravity: 1700,
       lateralSpeed: 400,
       fallFloor: -400,
-      color: [0.06, 0.06, 0.07],
+      feather: 7,      // css px, width of the stipple halo around glyphs
+      sizeVar: 0.35,   // grain size variance
+      shimmer: 0.3,    // css px, grain tremble
+      filmGrain: 0.1, // full-screen grain strength
+      filmScale: 1,    // css px per film grain
+      background: [0.962, 0.958, 0.945],
+      color: [0.05, 0.05, 0.06],
     };
   }
 
@@ -221,6 +253,7 @@ export class GrainField {
   }
 
   rebuildAll() {
+    setFeather(this.params.feather * this.dpr);
     for (const layer of this.layers) {
       layer.rebuild(this.fitFontSize(layer.text), this.params.spacing * this.dpr);
     }
@@ -232,6 +265,8 @@ export class GrainField {
 
   render(now, projection) {
     const gl = this.gl;
+    const bg = this.params.background;
+    gl.clearColor(bg[0], bg[1], bg[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     // drop layers whose fall has fully faded out
@@ -255,6 +290,8 @@ export class GrainField {
     gl.uniform1f(this.uniforms.uFallFloor, this.params.fallFloor);
     gl.uniform1f(this.uniforms.uPointSize, this.params.pointSize * this.dpr);
     gl.uniform3fv(this.uniforms.uColor, this.params.color);
+    gl.uniform1f(this.uniforms.uSizeVar, this.params.sizeVar);
+    gl.uniform1f(this.uniforms.uShimmer, this.params.shimmer * this.dpr);
     gl.uniform2f(this.uniforms.uOrigin, 0, 0);
 
     for (const layer of this.layers) {
@@ -264,6 +301,15 @@ export class GrainField {
       gl.bindVertexArray(layer.vao);
       gl.drawArrays(gl.POINTS, 0, layer.count);
     }
+    gl.bindVertexArray(null);
+
+    // film grain over everything, text included
+    gl.useProgram(this.filmProgram);
+    gl.uniform1f(this.filmUniforms.uFrame, Math.floor(now * 24));
+    gl.uniform1f(this.filmUniforms.uAmount, this.params.filmGrain);
+    gl.uniform1f(this.filmUniforms.uScale, Math.max(1, this.params.filmScale * this.dpr));
+    gl.bindVertexArray(this.emptyVao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindVertexArray(null);
   }
 }
